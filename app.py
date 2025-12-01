@@ -6,6 +6,7 @@ from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
 import google.generativeai as genai
 from supabase import create_client, Client
+from flask import Flask, request, abort, render_template  # ← render_template を追加！
 
 app = Flask(__name__)
 
@@ -48,6 +49,10 @@ model = genai.GenerativeModel(
 @app.route("/")
 def home():
     return "Bot is running!"
+
+@app.route("/list")
+def show_list():
+    return render_template("index.html")
 
 @app.route("/callback", methods=['POST'])
 def callback():
