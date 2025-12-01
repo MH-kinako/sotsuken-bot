@@ -20,20 +20,6 @@ handler = WebhookHandler(CHANNEL_SECRET)
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('models/gemini-2.0-flash')
 
-# ★★★ ここから診断コード ★★★
-print("--- モデル一覧チェック開始 ---")
-try:
-    for m in genai.list_models():
-        if 'generateContent' in m.supported_generation_methods:
-            print(m.name)
-except Exception as e:
-    print(f"モデル一覧の取得に失敗: {e}")
-print("--- モデル一覧チェック終了 ---")
-# ★★★ ここまで ★★★
-
-# モデル設定（あえて gemini-1.5-flash に戻してみます）
-model = genai.GenerativeModel('gemini-1.5-flash')
-
 @app.route("/")
 def home():
     return "Hello, AI Bot is running!"
