@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我が家のリスト</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body { font-family: sans-serif; padding: 20px; background-color: #f0f0f0; }
+        h1 { font-size: 20px; color: #333; }
+        .card { background: white; padding: 15px; margin-bottom: 10px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .type-badge { font-size: 12px; padding: 3px 8px; border-radius: 4px; color: white; display: inline-block; margin-bottom: 5px; }
+        .bg-task { background-color: #ff9f43; } /* オレンジ */
+        .bg-event { background-color: #54a0ff; } /* 青 */
+        .summary { font-size: 18px; font-weight: bold; }
+        .date { color: #888; font-size: 14px; margin-top: 5px; }
+    </style>
+</head>
+<body>
+
+    <h1>📝 共有リスト</h1>
+    <div id="list-container">
+        <p>読み込み中...</p>
+    </div>
+
+    <script>
+        // ここにRenderで設定したURLとキーを直接書く必要があるのですが、
+        // 今回はセキュリティを少し無視して、HTMLに埋め込んじゃいます。
+        // （本来はサーバーから渡すのが安全ですが、卒研デモ用として簡易化します）
+        
+        // ★重要★ ここに自分のSupabaseの情報を書き込んでください！
+        const SUPABASE_URL = "https://ygnafllntoczlrkwluax.supabase.co";
+        const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlnbmFmbGxudG9jemxya3dsdWF4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ1NjM3NDcsImV4cCI6MjA4MDEzOTc0N30.Ny_J6U3x23CPvJckmvUznK24lYOwq62fk17fZKm18cM";
+
+        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        async function fetchTasks() {
+            // tasksテーブルから全データを取得（新しい順）
+            const { data, error } = await supabase
+                .from('tasks')
+                .select('*')
+                .order('created_at', { ascending: false });
+
+            const container = document.getElementById('list-container');
+            container.innerHTML = ""; // クリア
+
+            if (error) {
+                container.innerHTML = "<p>エラーが発生しました😢</p>";
+                console.error(error);
+                return;
+            }
+
+            if (data.length === 0) {
+                container.innerHTML = "<p>まだリストはありません✨</p>";
+                return;
+            }
+
+            // データ1つずつカードにして表示
+            data.forEach(item => {
+                const typeClass = item.type === 'task' ? 'bg-task' : 'bg-event';
+                const typeName = item.type === 'task' ? '買う/やる' : '予定';
+                
+                const html = `
+                    <div class="card">
+                        <span class="type-badge ${typeClass}">${typeName}</span>
+                        <div class="summary">${item.summary}</div>
+                        <div class="date">${item.date || ""}</div>
+                    </div>
+                `;
+                container.innerHTML += html;
+            });
+        }
+
+        // ページが開いたら実行
+        fetchTasks();
+    </script>
+</body>
+</html>
