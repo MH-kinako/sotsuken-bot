@@ -18,9 +18,43 @@ handler = WebhookHandler(CHANNEL_SECRET)
 
 # Geminiの設定
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('models/gemini-2.0-flash')
 
-@app.route("/")
+# AIへの指示書（プロンプト）
+SYSTEM_PROMPT = """
+あなたは家族の会話を分析するバックグラウンドシステムです。
+ユーザーのメッセージを分析し、以下のJSON形式で出力してください。
+雑談や挨拶の場合は、typeを"null"にしてください。
+
+【出力フォーマット】
+{
+    "type": "task" または "event" または "null",
+    "summary": "タスクの内容（例：牛乳を買う）",
+    "date": "日付があれば（例：明日、日曜日、2025-12-01）"
+}
+
+【例1】
+入力: "帰りに牛乳買ってきて"
+出力: {"type": "task", "summary": "牛乳を買う", "date": "今日"}
+
+【例2】
+入力: "来週の日曜、11時に駅前集合ね"
+出力: {"type": "event", "summary": "駅前集合", "date": "来週の日曜日 11:00"}
+
+【例3】
+入力: "おはよー"
+出力: {"type": "null", "summary": "", "date": ""}
+"""
+
+# モデル設定（JSONモードを有効化）
+# ※ここにさっきの gemini-2.0-flash を使います
+model = genai.GenerativeModel(
+    'models/gemini-2.0-flash',
+    system_instruction=SYSTEM_PROMPT,
+    generation_config={"response_mime_type": "application/json"}
+)
+
+# ▲▲▲ 書き換えここまで ▲▲▲
+
 def home():
     return "Hello, AI Bot is running!"
 
