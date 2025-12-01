@@ -18,7 +18,7 @@ handler = WebhookHandler(CHANNEL_SECRET)
 
 # Geminiの設定
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-pro')
+model = genai.GenerativeModel('models/gemini-2.0-flash')
 
 # ★★★ ここから診断コード ★★★
 print("--- モデル一覧チェック開始 ---")
