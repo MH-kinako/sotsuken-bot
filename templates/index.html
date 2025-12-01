@@ -32,11 +32,11 @@
         const SUPABASE_URL = "https://ygnafllntoczlrkwluax.supabase.co";
         const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlnbmFmbGxudG9jemxya3dsdWF4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ1NjM3NDcsImV4cCI6MjA4MDEzOTc0N30.Ny_J6U3x23CPvJckmvUznK24lYOwq62fk17fZKm18cM";
 
-        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        const client = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
         async function fetchTasks() {
             // tasksテーブルから全データを取得（新しい順）
-            const { data, error } = await supabase
+            const { data, error } = await client
                 .from('tasks')
                 .select('*')
                 .order('created_at', { ascending: false });
