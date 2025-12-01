@@ -1,12 +1,11 @@
 import os
 import json
-from flask import Flask, request, abort
+from flask import Flask, request, abort, render_template, jsonify
 from linebot import LineBotApi, WebhookHandler
-from linebot.exceptions import InvalidSignatureError
+from linebot.exceptions import InvalidSignatureError, LineBotApiError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
 import google.generativeai as genai
 from supabase import create_client, Client
-from flask import Flask, request, abort, render_template  # ← render_template を追加！
 
 app = Flask(__name__)
 
@@ -17,26 +16,19 @@ GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 SUPABASE_URL = os.environ.get('SUPABASE_URL')
 SUPABASE_KEY = os.environ.get('SUPABASE_KEY')
 
-# --- 各種クライアント設定 ---
 line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(CHANNEL_SECRET)
-
 genai.configure(api_key=GEMINI_API_KEY)
-# Supabaseへの接続
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# --- AIへの指示書（JSONモード） ---
 SYSTEM_PROMPT = """
 あなたは家族の会話を分析するシステムです。
-入力されたメッセージが「タスク（買い物や作業）」や「予定（イベント）」である場合のみ、
-以下のJSON形式で出力してください。
-ただの雑談や挨拶の場合は、必ず type を "null" にしてください。
-
-【JSONフォーマット】
+入力されたメッセージが「タスク」や「予定」である場合のみJSONで出力してください。
+雑談は type: "null" にしてください。
 {
     "type": "task" または "event" または "null",
-    "summary": "タスクの内容を短く（例：牛乳を買う）",
-    "date": "日付情報があれば（例：明日、2025/12/01）。なければ空文字"
+    "summary": "内容（短く）",
+    "date": "日付（あれば）"
 }
 """
 
@@ -54,6 +46,38 @@ def home():
 def show_list():
     return render_template("index.html")
 
+# ▼▼▼ 新機能：タスク完了API ▼▼▼
+@app.route("/complete_task", methods=['POST'])
+def complete_task():
+    data = request.json
+    task_id = data.get('id')
+    summary = data.get('summary')
+    source_id = data.get('source_id') # LINEの送信先ID
+
+    if not task_id:
+        return jsonify({"status": "error"}), 400
+
+    try:
+        # 1. Supabaseから削除
+        supabase.table("tasks").delete().eq("id", task_id).execute()
+
+        # 2. LINEに通知（source_idがある場合のみ）
+        if source_id:
+            try:
+                line_bot_api.push_message(
+                    source_id,
+                    TextSendMessage(text=f"✅ 完了: {summary}\nお疲れ様でした！")
+                )
+            except LineBotApiError as e:
+                print(f"LINE送信エラー: {e}")
+                # ブロックされている等の理由で送れなくても、削除は成功とする
+
+        return jsonify({"status": "success"})
+    except Exception as e:
+        print(f"削除エラー: {e}")
+        return jsonify({"status": "error"}), 500
+# ▲▲▲ ここまで ▲▲▲
+
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
@@ -68,32 +92,29 @@ def callback():
 def handle_message(event):
     user_msg = event.message.text
     
+    # 送信元のIDを取得（グループID または ユーザーID）
+    source_id = event.source.group_id if event.source.type == 'group' else event.source.user_id
+
     try:
-        # 1. AIに分析させる
         response = model.generate_content(user_msg)
-        result = json.loads(response.text) # JSONデータとして読み込む
+        result = json.loads(response.text)
 
-        print(f"AI解析結果: {result}") # ログ確認用
-
-        # 2. 結果によって動きを変える
         msg_type = result.get("type")
         summary = result.get("summary")
         date_str = result.get("date")
 
-        # 雑談(null)なら何もしない（既読スルー）
         if msg_type == "null":
             return
 
-        # 3. タスクか予定なら Supabase に保存
+        # Supabaseに保存（source_idを追加！）
         data_to_save = {
             "type": msg_type,
             "summary": summary,
-            "date": date_str
+            "date": date_str,
+            "source_id": source_id 
         }
-        # 'tasks'テーブルに追加
         supabase.table("tasks").insert(data_to_save).execute()
 
-        # 4. 保存完了メッセージをLINEに送る（黒子なので簡潔に）
         reply_text = ""
         if msg_type == "task":
             reply_text = f"🛒 リストに追加: {summary}"
@@ -107,7 +128,6 @@ def handle_message(event):
 
     except Exception as e:
         print(f"Error: {e}")
-        # エラー時はユーザーには何も言わない（または「エラー」とだけ返す）
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
