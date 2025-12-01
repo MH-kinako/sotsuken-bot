@@ -7,13 +7,29 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         body { font-family: sans-serif; padding: 20px; background-color: #f0f0f0; }
-        h1 { font-size: 20px; color: #333; }
-        .card { background: white; padding: 15px; margin-bottom: 10px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .type-badge { font-size: 12px; padding: 3px 8px; border-radius: 4px; color: white; display: inline-block; margin-bottom: 5px; }
-        .bg-task { background-color: #ff9f43; } /* オレンジ */
-        .bg-event { background-color: #54a0ff; } /* 青 */
-        .summary { font-size: 18px; font-weight: bold; }
-        .date { color: #888; font-size: 14px; margin-top: 5px; }
+        h1 { font-size: 20px; color: #333; margin-bottom: 20px; }
+        .card { background: white; padding: 15px; margin-bottom: 12px; border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); display: flex; justify-content: space-between; align-items: center; }
+        .content { flex-grow: 1; }
+        .type-badge { font-size: 11px; padding: 3px 8px; border-radius: 4px; color: white; display: inline-block; margin-bottom: 4px; }
+        .bg-task { background-color: #ff9f43; }
+        .bg-event { background-color: #54a0ff; }
+        .summary { font-size: 16px; font-weight: bold; color: #333; }
+        .date { color: #888; font-size: 13px; margin-top: 2px; }
+        
+        /* 完了ボタンのデザイン */
+        .done-btn {
+            background-color: #2ecc71;
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 20px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 14px;
+            margin-left: 10px;
+            flex-shrink: 0; /* ボタンが潰れないように */
+        }
+        .done-btn:active { transform: scale(0.95); }
     </style>
 </head>
 <body>
@@ -24,54 +40,68 @@
     </div>
 
     <script>
-        // ここにRenderで設定したURLとキーを直接書く必要があるのですが、
-        // 今回はセキュリティを少し無視して、HTMLに埋め込んじゃいます。
-        // （本来はサーバーから渡すのが安全ですが、卒研デモ用として簡易化します）
-        
-        // ★重要★ ここに自分のSupabaseの情報を書き込んでください！
+        // ★★★ ここだけ自分のキーに書き換えてください！ ★★★
         const SUPABASE_URL = "https://ygnafllntoczlrkwluax.supabase.co";
         const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlnbmFmbGxudG9jemxya3dsdWF4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ1NjM3NDcsImV4cCI6MjA4MDEzOTc0N30.Ny_J6U3x23CPvJckmvUznK24lYOwq62fk17fZKm18cM";
 
         const client = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
         async function fetchTasks() {
-            // tasksテーブルから全データを取得（新しい順）
             const { data, error } = await client
                 .from('tasks')
                 .select('*')
                 .order('created_at', { ascending: false });
 
             const container = document.getElementById('list-container');
-            container.innerHTML = ""; // クリア
+            container.innerHTML = "";
 
-            if (error) {
-                container.innerHTML = "<p>エラーが発生しました😢</p>";
-                console.error(error);
+            if (error) { console.error(error); return; }
+            if (!data || data.length === 0) {
+                container.innerHTML = "<p style='color:#888; text-align:center;'>現在リストは空っぽです🎉</p>";
                 return;
             }
 
-            if (data.length === 0) {
-                container.innerHTML = "<p>まだリストはありません✨</p>";
-                return;
-            }
-
-            // データ1つずつカードにして表示
             data.forEach(item => {
                 const typeClass = item.type === 'task' ? 'bg-task' : 'bg-event';
                 const typeName = item.type === 'task' ? '買う/やる' : '予定';
                 
+                // ボタンにデータを埋め込む
                 const html = `
-                    <div class="card">
-                        <span class="type-badge ${typeClass}">${typeName}</span>
-                        <div class="summary">${item.summary}</div>
-                        <div class="date">${item.date || ""}</div>
+                    <div class="card" id="card-${item.id}">
+                        <div class="content">
+                            <span class="type-badge ${typeClass}">${typeName}</span>
+                            <div class="summary">${item.summary}</div>
+                            <div class="date">${item.date || ""}</div>
+                        </div>
+                        <button class="done-btn" onclick="completeTask('${item.id}', '${item.summary}', '${item.source_id || ""}')">
+                            完了！
+                        </button>
                     </div>
                 `;
                 container.innerHTML += html;
             });
         }
 
-        // ページが開いたら実行
+        // 完了ボタンが押された時の処理
+        async function completeTask(id, summary, sourceId) {
+            if(!confirm(`「${summary}」を完了にしますか？`)) return;
+
+            // 1. 画面から消す（サクサク感のため先に消す）
+            document.getElementById(`card-${id}`).style.display = 'none';
+
+            // 2. サーバーに連絡する
+            try {
+                await fetch('/complete_task', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: id, summary: summary, source_id: sourceId })
+                });
+            } catch (e) {
+                console.error("通信エラー", e);
+                alert("エラーが発生しました");
+            }
+        }
+
         fetchTasks();
     </script>
 </body>
