@@ -25,11 +25,25 @@ SYSTEM_PROMPT = """
 あなたは家族の会話を分析するシステムです。
 入力されたメッセージが「タスク」や「予定」である場合のみJSONで出力してください。
 雑談は type: "null" にしてください。
+
+【重要な指示：担当者の特定】
+会話の文脈から「誰がやるべきか（担当者）」を推測して assignee に入れてください。
+名前が呼ばれていない場合は、文脈から推測するか、わからなければ "家族全員" としてください。
+
+【JSONフォーマット】
 {
     "type": "task" または "event" または "null",
     "summary": "内容（短く）",
-    "date": "日付（あれば）"
+    "date": "日付（あれば）",
+    "assignee": "担当者の名前（例：パパ、ママ、お兄ちゃん、家族全員）"
 }
+
+【例】
+入力: "パパ、帰りに牛乳買ってきて"
+出力: {"type": "task", "summary": "牛乳を買う", "date": "今日", "assignee": "パパ"}
+
+入力: "来週の日曜はみんなで掃除しよう"
+出力: {"type": "event", "summary": "掃除", "date": "来週の日曜日", "assignee": "家族全員"}
 """
 
 model = genai.GenerativeModel(
@@ -102,6 +116,7 @@ def handle_message(event):
         msg_type = result.get("type")
         summary = result.get("summary")
         date_str = result.get("date")
+        assignee = result.get("assignee")
 
         if msg_type == "null":
             return
@@ -111,13 +126,14 @@ def handle_message(event):
             "type": msg_type,
             "summary": summary,
             "date": date_str,
+            "assignee": assignee,
             "source_id": source_id 
         }
         supabase.table("tasks").insert(data_to_save).execute()
 
         reply_text = ""
         if msg_type == "task":
-            reply_text = f"🛒 リストに追加: {summary}"
+            reply_text = f"🛒 リストに追加: {summary}\n(担当: {assignee})"
         elif msg_type == "event":
             reply_text = f"📅 予定をメモ: {summary} ({date_str})"
         
