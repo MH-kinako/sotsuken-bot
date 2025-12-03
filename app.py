@@ -21,6 +21,7 @@ handler = WebhookHandler(CHANNEL_SECRET)
 genai.configure(api_key=GEMINI_API_KEY)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+# --- AIへの指示書（担当者特定を強化） ---
 SYSTEM_PROMPT = """
 あなたは家族の会話を分析するシステムです。
 入力されたメッセージが「タスク」や「予定」である場合のみJSONで出力してください。
@@ -28,22 +29,21 @@ SYSTEM_PROMPT = """
 
 【重要な指示：担当者の特定】
 会話の文脈から「誰がやるべきか（担当者）」を推測して assignee に入れてください。
-名前が呼ばれていない場合は、文脈から推測するか、わからなければ "家族全員" としてください。
+その際、以下のルールを優先してください。
+
+1. 「私」「俺」「僕」など発言者自身を指す言葉の場合
+   → 出力は必ず "発言者本人" としてください。（後でシステムが本名に置き換えます）
+
+2. 第三者を指す場合（パパ、ママなど）
+   → 文脈に合わせて「お父さん」「お母さん」などに統一してください。
 
 【JSONフォーマット】
 {
     "type": "task" または "event" または "null",
     "summary": "内容（短く）",
     "date": "日付（あれば）",
-    "assignee": "担当者の名前（例：パパ、ママ、お兄ちゃん、家族全員）"
+    "assignee": "担当者の名前"
 }
-
-【例】
-入力: "パパ、帰りに牛乳買ってきて"
-出力: {"type": "task", "summary": "牛乳を買う", "date": "今日", "assignee": "パパ"}
-
-入力: "来週の日曜はみんなで掃除しよう"
-出力: {"type": "event", "summary": "掃除", "date": "来週の日曜日", "assignee": "家族全員"}
 """
 
 model = genai.GenerativeModel(
@@ -60,37 +60,33 @@ def home():
 def show_list():
     return render_template("index.html")
 
-# ▼▼▼ 新機能：タスク完了API ▼▼▼
+# タスク完了API
 @app.route("/complete_task", methods=['POST'])
 def complete_task():
     data = request.json
     task_id = data.get('id')
     summary = data.get('summary')
-    source_id = data.get('source_id') # LINEの送信先ID
+    source_id = data.get('source_id')
 
     if not task_id:
         return jsonify({"status": "error"}), 400
 
     try:
-        # 1. Supabaseから削除
         supabase.table("tasks").delete().eq("id", task_id).execute()
 
-        # 2. LINEに通知（source_idがある場合のみ）
         if source_id:
             try:
                 line_bot_api.push_message(
                     source_id,
                     TextSendMessage(text=f"✅ 完了: {summary}\nお疲れ様でした！")
                 )
-            except LineBotApiError as e:
-                print(f"LINE送信エラー: {e}")
-                # ブロックされている等の理由で送れなくても、削除は成功とする
+            except LineBotApiError:
+                pass # 送れなくてもOK
 
         return jsonify({"status": "success"})
     except Exception as e:
         print(f"削除エラー: {e}")
         return jsonify({"status": "error"}), 500
-# ▲▲▲ ここまで ▲▲▲
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -105,12 +101,26 @@ def callback():
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     user_msg = event.message.text
-    
-    # 送信元のIDを取得（グループID または ユーザーID）
-    source_id = event.source.group_id if event.source.type == 'group' else event.source.user_id
+    user_id = event.source.user_id
+    # グループIDがあればそっちを、なければユーザーIDを送信元とする
+    source_id = event.source.group_id if event.source.type == 'group' else user_id
+
+    # ★Lv.2追加：LINEのプロフィール名を取得する
+    sender_name = "不明なユーザー"
+    try:
+        if event.source.type == 'group':
+            profile = line_bot_api.get_group_member_profile(event.source.group_id, user_id)
+        else:
+            profile = line_bot_api.get_profile(user_id)
+        sender_name = profile.display_name
+    except Exception as e:
+        print(f"名前取得エラー: {e}")
 
     try:
-        response = model.generate_content(user_msg)
+        # AIに「誰が発言したか」もプロンプトに含めて渡す
+        full_prompt = f"発言者: {sender_name}\nメッセージ: {user_msg}"
+        
+        response = model.generate_content(full_prompt)
         result = json.loads(response.text)
 
         msg_type = result.get("type")
@@ -118,10 +128,14 @@ def handle_message(event):
         date_str = result.get("date")
         assignee = result.get("assignee")
 
+        # 「発言者本人」なら、LINEの表示名に置き換える
+        if assignee == "発言者本人":
+            assignee = sender_name
+
         if msg_type == "null":
             return
 
-        # Supabaseに保存（source_idを追加！）
+        # Supabaseに保存
         data_to_save = {
             "type": msg_type,
             "summary": summary,
